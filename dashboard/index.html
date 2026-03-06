@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -84,7 +85,8 @@
             border-collapse: collapse;
         }
 
-        th, td {
+        th,
+        td {
             text-align: left;
             padding: 10px 15px;
             border-bottom: 1px solid var(--border-color);
@@ -102,13 +104,18 @@
 
         /* ── Log Panel ── */
         .log-panel {
-            flex: 1;
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
+            min-height: 0;
+            /* Critical for flex scrolling */
         }
 
         .log-container {
-            flex: 1;
+            flex: 1 1 auto;
             overflow-y: auto;
+            min-height: 0;
             font-size: 0.9rem;
             line-height: 1.5;
             background-color: #0b0b0f;
@@ -119,9 +126,11 @@
         .log-container::-webkit-scrollbar {
             width: 8px;
         }
+
         .log-container::-webkit-scrollbar-track {
             background: #0b0b0f;
         }
+
         .log-container::-webkit-scrollbar-thumb {
             background: var(--border-color);
         }
@@ -133,15 +142,41 @@
         }
 
         /* Colors & Utils */
-        .text-dim { color: var(--text-dim); }
-        .text-green { color: var(--accent-green); }
-        .text-red { color: var(--accent-red); }
-        .text-yellow { color: var(--accent-yellow); }
-        .text-cyan { color: var(--accent-cyan); }
-        .text-magenta { color: var(--accent-magenta); }
-        .text-blue { color: var(--accent-blue); }
-        .text-white { color: #fff; }
-        .bold { font-weight: bold; }
+        .text-dim {
+            color: var(--text-dim);
+        }
+
+        .text-green {
+            color: var(--accent-green);
+        }
+
+        .text-red {
+            color: var(--accent-red);
+        }
+
+        .text-yellow {
+            color: var(--accent-yellow);
+        }
+
+        .text-cyan {
+            color: var(--accent-cyan);
+        }
+
+        .text-magenta {
+            color: var(--accent-magenta);
+        }
+
+        .text-blue {
+            color: var(--accent-blue);
+        }
+
+        .text-white {
+            color: #fff;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
 
         .status-badge {
             display: inline-block;
@@ -150,12 +185,14 @@
             background: rgba(158, 206, 106, 0.2);
             font-size: 0.8rem;
         }
+
         .status-badge.stopped {
             background: rgba(247, 118, 142, 0.2);
             color: var(--accent-red);
         }
     </style>
 </head>
+
 <body>
 
     <div class="container">
@@ -178,7 +215,9 @@
                     </tr>
                 </thead>
                 <tbody id="agentsTableBody">
-                    <tr><td colspan="6" class="text-dim text-center">Loading network state...</td></tr>
+                    <tr>
+                        <td colspan="6" class="text-dim text-center">Loading network state...</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -242,9 +281,9 @@
                 // Fetch Agents
                 const agentsRes = await fetch('/api/agents');
                 const agents = await agentsRes.json();
-                
+
                 agentCountEl.textContent = `${agents.length} Nodes Online`;
-                
+
                 if (agents.length === 0) {
                     agentsTableBody.innerHTML = '<tr><td colspan="6" class="text-dim">No agents found.</td></tr>';
                 } else {
@@ -267,13 +306,13 @@
                 // Fetch Logs
                 const logsRes = await fetch('/api/logs');
                 const logs = await logsRes.json();
-                
+
                 if (logs.length > 0) {
                     logContainer.innerHTML = logs.map(log => {
-                        const time = new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+                        const time = new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
                         const colorClass = getActionColor(log.actionType);
                         const details = formatDetails(log);
-                        
+
                         return `
                         <div class="log-row">
                             <span class="text-dim">[${time}]</span> 
@@ -295,9 +334,10 @@
 
         // Poll every 3 seconds
         setInterval(fetchState, 3000);
-        
+
         // Initial fetch
         fetchState();
     </script>
 </body>
+
 </html>
