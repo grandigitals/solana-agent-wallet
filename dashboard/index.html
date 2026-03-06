@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana Agent Wallet — Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0d0d12;
+            --panel-bg: #16161e;
+            --border-color: #2a2a35;
+            --text-main: #a9b1d6;
+            --text-dim: #565f89;
+            --accent-green: #9ece6a;
+            --accent-blue: #7aa2f7;
+            --accent-yellow: #e0af68;
+            --accent-red: #f7768e;
+            --accent-magenta: #bb9af7;
+            --accent-cyan: #7dcfff;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        h1 {
+            color: var(--accent-cyan);
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(125, 207, 255, 0.3);
+            border-bottom: 1px dashed var(--border-color);
+            padding-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel-title {
+            color: var(--accent-yellow);
+            font-weight: bold;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* ── Agents Table ── */
+        .agents-panel {
+            flex: 0 0 auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--accent-blue);
+            font-weight: normal;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* ── Log Panel ── */
+        .log-panel {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            background-color: #0b0b0f;
+            padding: 10px;
+            border: 1px inset var(--border-color);
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .log-container::-webkit-scrollbar-track {
+            background: #0b0b0f;
+        }
+        .log-container::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+        }
+
+        .log-row {
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Colors & Utils */
+        .text-dim { color: var(--text-dim); }
+        .text-green { color: var(--accent-green); }
+        .text-red { color: var(--accent-red); }
+        .text-yellow { color: var(--accent-yellow); }
+        .text-cyan { color: var(--accent-cyan); }
+        .text-magenta { color: var(--accent-magenta); }
+        .text-blue { color: var(--accent-blue); }
+        .text-white { color: #fff; }
+        .bold { font-weight: bold; }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(158, 206, 106, 0.2);
+            font-size: 0.8rem;
+        }
+        .status-badge.stopped {
+            background: rgba(247, 118, 142, 0.2);
+            color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>⬡ Solana Agent Wallet — Live Network ⬡</h1>
+
+        <div class="panel agents-panel">
+            <div class="panel-title">
+                <span>🤖 Agent Status</span>
+                <span id="agentCount" class="text-dim">0 Active</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Wallet Address</th>
+                        <th>Balance (SOL)</th>
+                        <th>OK TX</th>
+                        <th>Fail TX</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="agentsTableBody">
+                    <tr><td colspan="6" class="text-dim text-center">Loading network state...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="panel log-panel">
+            <div class="panel-title">
+                <span>📋 Network Activity Feed</span>
+                <span id="lastUpdate" class="text-dim">Syncing...</span>
+            </div>
+            <div class="log-container" id="logContainer">
+                <div class="log-row text-dim">Initializing socket connection...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const agentsTableBody = document.getElementById('agentsTableBody');
+        const logContainer = document.getElementById('logContainer');
+        const agentCountEl = document.getElementById('agentCount');
+        const lastUpdateEl = document.getElementById('lastUpdate');
+
+        function shortenKey(key) {
+            if (!key) return '????';
+            return `${key.slice(0, 8)}...${key.slice(-4)}`;
+        }
+
+        function getActionColor(type) {
+            switch (type) {
+                case 'TRANSFER_SUCCESS': return 'text-green';
+                case 'TRANSFER_ATTEMPT': return 'text-yellow';
+                case 'TRANSFER_ERROR': return 'text-red';
+                case 'INSUFFICIENT_FUNDS': return 'text-magenta';
+                case 'BALANCE_CHECK': return 'text-cyan';
+                case 'INITIALIZED': return 'text-blue';
+                default: return 'text-white';
+            }
+        }
+
+        function formatDetails(action) {
+            const d = action.details || {};
+            switch (action.actionType) {
+                case 'BALANCE_CHECK':
+                    return `balance=<span class="text-white">${Number(d.balanceSOL ?? 0).toFixed(6)}</span> SOL`;
+                case 'TRANSFER_ATTEMPT':
+                    return `→ <span class="text-white">${shortenKey(d.to)}</span> <span class="text-white">${d.lamports}</span>lam`;
+                case 'TRANSFER_SUCCESS':
+                    return `→ <span class="text-white">${shortenKey(d.to)}</span> sig=<span class="text-green">${String(d.signature ?? '').slice(0, 20)}...</span>`;
+                case 'TRANSFER_ERROR':
+                    return `<span class="text-red">${String(d.error ?? '').slice(0, 60)}</span>`;
+                case 'INSUFFICIENT_FUNDS':
+                    return `balance=${d.balance}lam required=${d.required}lam`;
+                case 'INITIALIZED':
+                    return `key=<span class="text-white">${shortenKey(d.publicKey)}</span> interval=${d.intervalMs}ms`;
+                default:
+                    return JSON.stringify(d);
+            }
+        }
+
+        async function fetchState() {
+            try {
+                // Fetch Agents
+                const agentsRes = await fetch('/api/agents');
+                const agents = await agentsRes.json();
+                
+                agentCountEl.textContent = `${agents.length} Nodes Online`;
+                
+                if (agents.length === 0) {
+                    agentsTableBody.innerHTML = '<tr><td colspan="6" class="text-dim">No agents found.</td></tr>';
+                } else {
+                    agentsTableBody.innerHTML = agents.map(a => `
+                        <tr>
+                            <td class="text-cyan">${a.agentId}</td>
+                            <td class="text-white">${a.publicKey}</td>
+                            <td class="text-yellow">${a.balanceSOL.toFixed(6)}</td>
+                            <td class="text-green">${a.successfulTransactions}</td>
+                            <td class="text-red">${a.failedTransactions}</td>
+                            <td>
+                                <span class="status-badge text-green ${!a.isRunning ? 'stopped' : ''}">
+                                    ${a.isRunning ? '● RUNNING' : '◉ STOPPED'}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+
+                // Fetch Logs
+                const logsRes = await fetch('/api/logs');
+                const logs = await logsRes.json();
+                
+                if (logs.length > 0) {
+                    logContainer.innerHTML = logs.map(log => {
+                        const time = new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+                        const colorClass = getActionColor(log.actionType);
+                        const details = formatDetails(log);
+                        
+                        return `
+                        <div class="log-row">
+                            <span class="text-dim">[${time}]</span> 
+                            <span class="text-cyan">[${log.agentId}]</span> 
+                            <span class="${colorClass} bold">${log.actionType.padEnd(20)}</span> 
+                            ${details}
+                        </div>`;
+                    }).join('');
+                }
+
+                lastUpdateEl.textContent = 'Sync: ' + new Date().toLocaleTimeString();
+
+            } catch (err) {
+                console.error('Failed to fetch state:', err);
+                lastUpdateEl.textContent = 'Connection Lost...';
+                lastUpdateEl.className = 'text-red';
+            }
+        }
+
+        // Poll every 3 seconds
+        setInterval(fetchState, 3000);
+        
+        // Initial fetch
+        fetchState();
+    </script>
+</body>
+</html>

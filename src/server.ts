@@ -1,0 +1,83 @@
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+import { connection } from './solana/connection';
+import { AgentOrchestrator, OrchestratorEvent } from './agent/AgentOrchestrator';
+import { AgentAction } from './agent/Agent';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Serve static files from the dashboard directory
+app.use(express.static(path.join(__dirname, '../dashboard')));
+app.use(cors());
+
+// Limit to 50 logs in memory
+const MAX_LOGS = 50;
+const actionLogs: AgentAction[] = [];
+
+// Initialize the orchestrator
+const orchestrator = new AgentOrchestrator({
+    agentCount: 3,
+    connection,
+    intervalMs: 10000,
+    transferLamports: 1000,
+});
+
+orchestrator.on('orchestratorEvent', (event: OrchestratorEvent) => {
+    if (event.type === 'agentAction') {
+        const action = event.data as AgentAction;
+        actionLogs.unshift(action);
+        if (actionLogs.length > MAX_LOGS) {
+            actionLogs.pop();
+        }
+    }
+});
+
+// ── API Routes ─────────────────────────────────────────────────────────────
+
+app.get('/api/agents', (req, res) => {
+    try {
+        const states = orchestrator.getAllStates();
+        res.json(states);
+    } catch (err) {
+        res.status(500).json({ error: (err as Error).message });
+    }
+});
+
+app.get('/api/logs', (req, res) => {
+    res.json(actionLogs);
+});
+
+// (Fallback route removed due to Express 5 path-to-regexp strictness)
+
+// ── Start Server & Agents ──────────────────────────────────────────────────
+
+async function start() {
+    if (!process.env.ENCRYPTION_PASSWORD) {
+        console.error('[ERROR] ENCRYPTION_PASSWORD is not set in .env');
+        process.exit(1);
+    }
+
+    console.log('[Server] Initializing agent wallets...');
+    await orchestrator.initialize();
+
+    console.log(`[Server] Starting ${orchestrator.agentCount} agents...`);
+    orchestrator.start();
+
+    app.listen(PORT, () => {
+        console.log(`\n======================================================`);
+        console.log(`🚀 Server & Agents running!`);
+        console.log(`🌐 Dashboard: http://localhost:${PORT}`);
+        console.log(`======================================================\n`);
+    });
+}
+
+start().catch((err) => {
+    console.error('Fatal error starting server:', err);
+    process.exit(1);
+});
