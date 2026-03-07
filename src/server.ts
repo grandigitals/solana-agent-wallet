@@ -12,6 +12,21 @@ import { AgentAction } from './agent/Agent';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Parse CLI args & env ──────────────────────────────────────────────────
+// Accept --agents=N from CLI, fall back to AGENT_COUNT env var, then default 3
+function parseAgentCount(): number {
+    const cliArg = process.argv.find((a) => a.startsWith('--agents='));
+    if (cliArg) {
+        const n = parseInt(cliArg.split('=')[1], 10);
+        if (!isNaN(n) && n > 0) return n;
+    }
+    const envVal = parseInt(process.env.AGENT_COUNT ?? '', 10);
+    if (!isNaN(envVal) && envVal > 0) return envVal;
+    return 3; // default
+}
+
+const AGENT_COUNT = parseAgentCount();
+
 // Serve static files from the dashboard directory
 app.use(express.static(path.join(__dirname, '../dashboard')));
 app.use(cors());
@@ -20,9 +35,9 @@ app.use(cors());
 const MAX_LOGS = 50;
 const actionLogs: AgentAction[] = [];
 
-// Initialize the orchestrator
+// Initialize the orchestrator with dynamic agent count
 const orchestrator = new AgentOrchestrator({
-    agentCount: 3,
+    agentCount: AGENT_COUNT,
     connection,
     intervalMs: 10000,
     transferLamports: 1000,

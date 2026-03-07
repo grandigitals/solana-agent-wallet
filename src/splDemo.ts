@@ -1,28 +1,30 @@
 /**
  * splDemo.ts
  * ──────────
- * End-to-end SPL Token demo using existing encrypted agent wallets.
+ * Fully dynamic end-to-end SPL Token demo.
+ *
+ * Usage:
+ *   npm run spl-demo               (default: 3 agents)
+ *   npm run spl-demo -- --agents=5 (5 agents)
  *
  * What it does:
- *  1. Loads agent-0 and agent-1 keypairs from local encrypted storage
+ *  1. Loads N agent wallets from encrypted storage (creates if missing)
  *  2. Creates a new SPL Token mint (agent-0 is mint authority)
- *  3. Mints 1,000,000 tokens to agent-0's Associated Token Account
- *  4. Transfers 250,000 tokens from agent-0 → agent-1
- *  5. Prints both agents' final token balances
+ *  3. Mints (N × 250,000) tokens to agent-0
+ *  4. Distributes 250,000 tokens equally to every other agent
+ *  5. Prints all final token balances
+ *  Every transaction signature is printed as a Solana Explorer devnet link.
  *
  * Prerequisites:
- *  - agent-0 must have some Devnet SOL to pay for transactions
+ *  - agent-0 must have some Devnet SOL (pays for all transactions)
  *  - ENCRYPTION_PASSWORD must be set in .env
- *
- * Run with:
- *  npm run spl-demo
  */
 
 import dotenv from 'dotenv';
 dotenv.config();
 
 import { connection } from './solana/connection';
-import { WalletManager } from './wallet/WalletManager';
+import { WalletManager, ManagedWallet } from './wallet/WalletManager';
 import {
     createMint,
     getOrCreateAssociatedTokenAccount,
@@ -31,183 +33,157 @@ import {
     getTokenBalance,
 } from './solana/tokens';
 
+// ── CLI argument parsing ───────────────────────────────────────────────────
+
+function parseArgs(): { agentCount: number } {
+    const raw = process.argv.find((a) => a.startsWith('--agents='));
+    const agentCount = raw ? parseInt(raw.split('=')[1], 10) : 3;
+
+    if (isNaN(agentCount) || agentCount < 1) {
+        console.error('[ERROR] --agents must be a positive integer');
+        process.exit(1);
+    }
+    return { agentCount };
+}
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
 const MINT_DECIMALS = 6;
-const MINT_AMOUNT = BigInt(1_000_000 * 10 ** MINT_DECIMALS); // 1,000,000 tokens
-const TRANSFER_AMOUNT = BigInt(250_000 * 10 ** MINT_DECIMALS); // 250,000 tokens
+const TOKENS_PER_AGENT = 250_000;  // each non-mint agent receives this many tokens
 
-function line(char: string = '─', width: number = 60): string {
-    return char.repeat(width);
-}
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-function log(msg: string): void {
-    console.log(msg);
-}
-
+function line(char = '─', width = 60): string { return char.repeat(width); }
+function log(msg: string): void { console.log(msg); }
 function logStep(step: number, title: string): void {
-    log(`\n${line()}`);
-    log(`  STEP ${step}: ${title}`);
-    log(line());
+    log(`\n${line()}\n  STEP ${step}: ${title}\n${line()}`);
 }
-
 function logTx(label: string, sig: string, url: string): void {
     log(`  ✅ ${label}`);
-    log(`     Signature : ${sig.slice(0, 20)}...${sig.slice(-8)}`);
-    log(`     Explorer  : ${url}`);
+    log(`     Sig      : ${sig.slice(0, 20)}...${sig.slice(-8)}`);
+    log(`     Explorer : ${url}`);
 }
 
+// ── Main ───────────────────────────────────────────────────────────────────
+
 async function main(): Promise<void> {
-    // ── Validate environment ──────────────────────────────────────────────────
     if (!process.env.ENCRYPTION_PASSWORD) {
         console.error('[ERROR] ENCRYPTION_PASSWORD is not set in .env');
         process.exit(1);
     }
 
+    const { agentCount } = parseArgs();
+    const TOTAL_MINT = BigInt(agentCount * TOKENS_PER_AGENT * 10 ** MINT_DECIMALS);
+    const TRANSFER_AMOUNT = BigInt(TOKENS_PER_AGENT * 10 ** MINT_DECIMALS);
+
     log('\n' + '═'.repeat(60));
     log('  🪙  Solana Agent Wallet — SPL Token Demo');
     log('═'.repeat(60));
-    log(`  Network : Devnet`);
-    log(`  Time    : ${new Date().toISOString()}`);
+    log(`  Network     : Devnet`);
+    log(`  Agent Count : ${agentCount}`);
+    log(`  Tokens/Agent: ${TOKENS_PER_AGENT.toLocaleString()}`);
+    log(`  Total Mint  : ${(agentCount * TOKENS_PER_AGENT).toLocaleString()}`);
+    log(`  Time        : ${new Date().toISOString()}`);
 
-    // ── Step 1: Load wallets ──────────────────────────────────────────────────
+    // ── Step 1: Load wallets ─────────────────────────────────────────────────
     logStep(1, 'Loading Agent Wallets');
 
-    const agent0Wallet = WalletManager.getOrCreateWallet('agent-0');
-    const agent1Wallet = WalletManager.getOrCreateWallet('agent-1');
-    const agent2Wallet = WalletManager.getOrCreateWallet('agent-2');
+    const wallets: ManagedWallet[] = WalletManager.getOrCreateWallets(agentCount);
+    for (const w of wallets) {
+        log(`  ${w.agentId.padEnd(10)} : ${w.keypair.publicKey.toBase58()}`);
+    }
 
-    log(`  agent-0 : ${agent0Wallet.keypair.publicKey.toBase58()}`);
-    log(`  agent-1 : ${agent1Wallet.keypair.publicKey.toBase58()}`);
-    log(`  agent-2 : ${agent2Wallet.keypair.publicKey.toBase58()}`);
+    const agent0 = wallets[0];
+    const peers = wallets.slice(1);
 
-    // Check SOL balance of agent-0 (needs SOL to pay for txs)
-    const agent0Sol = await connection.getBalance(agent0Wallet.keypair.publicKey);
-    log(`\n  agent-0 SOL balance: ${(agent0Sol / 1e9).toFixed(6)} SOL`);
+    // Verify agent-0 has enough SOL to pay for everything
+    const agent0Sol = await connection.getBalance(agent0.keypair.publicKey);
+    log(`\n  agent-0 SOL balance : ${(agent0Sol / 1e9).toFixed(6)} SOL`);
 
     if (agent0Sol < 10_000_000) {
-        console.error('\n  ⚠️  agent-0 has insufficient SOL on Devnet.');
-        console.error('  Fund it at: https://faucet.solana.com');
-        console.error(`  Address: ${agent0Wallet.keypair.publicKey.toBase58()}`);
+        log('\n  ⚠️  agent-0 has insufficient SOL on Devnet.');
+        log(`  Fund it at : https://faucet.solana.com`);
+        log(`  Address    : ${agent0.keypair.publicKey.toBase58()}`);
         process.exit(1);
     }
 
-    // ── Step 2: Create SPL Token Mint ─────────────────────────────────────────
+    // ── Step 2: Create SPL Token Mint ───────────────────────────────────────
     logStep(2, 'Creating SPL Token Mint');
     log(`  Mint Authority : agent-0`);
     log(`  Decimals       : ${MINT_DECIMALS}`);
-    log(`  Creating...`);
 
     const mintResult = await createMint(
         connection,
-        agent0Wallet.keypair,
-        agent0Wallet.keypair.publicKey,
+        agent0.keypair,
+        agent0.keypair.publicKey,
         MINT_DECIMALS
     );
-
     log(`  Mint Address   : ${mintResult.mintPublicKey.toBase58()}`);
     logTx('Mint Created', mintResult.signature, mintResult.explorerUrl);
 
-    // ── Step 3: Create Associated Token Accounts ──────────────────────────────
-    logStep(3, 'Setting Up Token Accounts');
+    // ── Step 3: Set up ATAs for all agents ──────────────────────────────────
+    logStep(3, `Setting Up Token Accounts (${agentCount} agents)`);
 
-    const agent0AtaResult = await getOrCreateAssociatedTokenAccount(
-        connection,
-        agent0Wallet.keypair,
-        mintResult.mintPublicKey,
-        agent0Wallet.keypair.publicKey
-    );
-    log(`  agent-0 ATA : ${agent0AtaResult.ata.toBase58()}`);
-    if (agent0AtaResult.signature) {
-        logTx('agent-0 ATA Created', agent0AtaResult.signature, agent0AtaResult.explorerUrl!);
-    } else {
-        log(`  ✅ agent-0 ATA already existed`);
+    for (const w of wallets) {
+        const result = await getOrCreateAssociatedTokenAccount(
+            connection,
+            agent0.keypair,             // agent-0 pays for all ATAs
+            mintResult.mintPublicKey,
+            w.keypair.publicKey
+        );
+        log(`  ${w.agentId.padEnd(10)} ATA : ${result.ata.toBase58()}`);
+        if (result.signature) {
+            logTx(`${w.agentId} ATA Created`, result.signature, result.explorerUrl!);
+        } else {
+            log(`    (already existed)`);
+        }
     }
 
-    const agent1AtaResult = await getOrCreateAssociatedTokenAccount(
-        connection,
-        agent0Wallet.keypair, // agent-0 pays for agent-1's ATA creation
-        mintResult.mintPublicKey,
-        agent1Wallet.keypair.publicKey
-    );
-    log(`  agent-1 ATA : ${agent1AtaResult.ata.toBase58()}`);
-    if (agent1AtaResult.signature) {
-        logTx('agent-1 ATA Created', agent1AtaResult.signature, agent1AtaResult.explorerUrl!);
-    } else {
-        log(`  ✅ agent-1 ATA already existed`);
-    }
-
-    const agent2AtaResult = await getOrCreateAssociatedTokenAccount(
-        connection,
-        agent0Wallet.keypair, // agent-0 pays for agent-2's ATA creation
-        mintResult.mintPublicKey,
-        agent2Wallet.keypair.publicKey
-    );
-    log(`  agent-2 ATA : ${agent2AtaResult.ata.toBase58()}`);
-    if (agent2AtaResult.signature) {
-        logTx('agent-2 ATA Created', agent2AtaResult.signature, agent2AtaResult.explorerUrl!);
-    } else {
-        log(`  ✅ agent-2 ATA already existed`);
-    }
-
-    // ── Step 4: Mint 1,000,000 tokens to agent-0 ─────────────────────────────
-    logStep(4, `Minting 1,000,000 Tokens to agent-0`);
+    // ── Step 4: Mint total supply to agent-0 ────────────────────────────────
+    logStep(4, `Minting ${(agentCount * TOKENS_PER_AGENT).toLocaleString()} Tokens to agent-0`);
 
     const mintToResult = await mintTokens(
         connection,
-        agent0Wallet.keypair,
+        agent0.keypair,
         mintResult.mintPublicKey,
-        agent0Wallet.keypair.publicKey,
-        MINT_AMOUNT
+        agent0.keypair.publicKey,
+        TOTAL_MINT
     );
     logTx('Tokens Minted', mintToResult.signature, mintToResult.explorerUrl);
 
-    // ── Step 5: Transfer 250,000 tokens to agent-1 ───────────────────────────
-    logStep(5, 'Transferring 250,000 Tokens: agent-0 → agent-1 and agent-0 → agent-2');
+    // ── Step 5: Distribute to all peers ─────────────────────────────────────
+    logStep(5, `Distributing ${TOKENS_PER_AGENT.toLocaleString()} Tokens to Each of ${peers.length} Peers`);
 
-    const transfer1Result = await transferTokens(
-        connection,
-        agent0Wallet.keypair,
-        mintResult.mintPublicKey,
-        agent0Wallet.keypair,
-        agent1Wallet.keypair.publicKey,
-        TRANSFER_AMOUNT
-    );
-    logTx('Tokens Sent to agent-1', transfer1Result.signature, transfer1Result.explorerUrl);
-
-    const transfer2Result = await transferTokens(
-        connection,
-        agent0Wallet.keypair,
-        mintResult.mintPublicKey,
-        agent0Wallet.keypair,
-        agent2Wallet.keypair.publicKey,
-        TRANSFER_AMOUNT
-    );
-    logTx('Tokens Sent to agent-2', transfer2Result.signature, transfer2Result.explorerUrl);
+    for (const peer of peers) {
+        const result = await transferTokens(
+            connection,
+            agent0.keypair,
+            mintResult.mintPublicKey,
+            agent0.keypair,
+            peer.keypair.publicKey,
+            TRANSFER_AMOUNT
+        );
+        logTx(`agent-0 → ${peer.agentId}`, result.signature, result.explorerUrl);
+    }
 
     // ── Step 6: Final Balances ────────────────────────────────────────────────
     logStep(6, 'Final Token Balances');
 
-    const agent0Balance = await getTokenBalance(
-        connection,
-        mintResult.mintPublicKey,
-        agent0Wallet.keypair.publicKey
-    );
-
-    const agent1Balance = await getTokenBalance(
-        connection,
-        mintResult.mintPublicKey,
-        agent1Wallet.keypair.publicKey
-    );
-
-    const agent2Balance = await getTokenBalance(
-        connection,
-        mintResult.mintPublicKey,
-        agent2Wallet.keypair.publicKey
-    );
-
-    log(`  agent-0 : ${agent0Balance.uiAmount.toLocaleString()} tokens  (minted 1,000,000 − sent 500,000)`);
-    log(`  agent-1 : ${agent1Balance.uiAmount.toLocaleString()} tokens`);
-    log(`  agent-2 : ${agent2Balance.uiAmount.toLocaleString()} tokens`);
-    log(`  Total   : ${(agent0Balance.uiAmount + agent1Balance.uiAmount + agent2Balance.uiAmount).toLocaleString()} tokens`);
+    let grandTotal = 0;
+    for (const w of wallets) {
+        const bal = await getTokenBalance(
+            connection,
+            mintResult.mintPublicKey,
+            w.keypair.publicKey
+        );
+        const label = w.agentId === 'agent-0'
+            ? `${w.agentId} (minter)`
+            : w.agentId;
+        log(`  ${label.padEnd(18)} : ${bal.uiAmount.toLocaleString()} tokens`);
+        grandTotal += bal.uiAmount;
+    }
+    log(`  ${'─'.repeat(38)}`);
+    log(`  ${'Total'.padEnd(18)} : ${grandTotal.toLocaleString()} tokens`);
 
     log(`\n${'═'.repeat(60)}`);
     log('  ✅ SPL Token Demo Complete!');
