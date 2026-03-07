@@ -53,7 +53,11 @@ export interface TokenBalance {
 const EXPLORER_BASE = 'https://explorer.solana.com/tx';
 
 function explorerUrl(signature: string): string {
-    return `${EXPLORER_BASE}/${signature}?cluster=devnet`;
+    // If using local validator, don't append devnet cluster
+    const cluster = process.env.SOLANA_RPC_URL?.includes('localhost')
+        ? '?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899'
+        : '?cluster=devnet';
+    return `${EXPLORER_BASE}/${signature}${cluster}`;
 }
 
 /**
