@@ -86,6 +86,26 @@ npx ts-node src/index.ts --agents=5 --interval=15
 | `--agents=N` | Number of agents to spawn | `3` |
 | `--interval=S` | Transfer interval in seconds | `10` |
 
+## Deep Dive: Architecture & Security
+
+This project was built specifically for the **DeFi Developer Challenge – Agentic Wallets for AI Agents** bounty. It fulfills all requirements for a secure, autonomous, multi-agent sandbox.
+
+### 1. Wallet Design & Separation of Concerns
+The system enforces a strict boundary between "Agent Logic" (the AI/brain making decisions) and "Wallet Operations" (key management and signatures):
+- **`WalletManager`**: Purely responsible for cryptographic key generation and loading. It provides a `ManagedWallet` interface.
+- **`Agent`**: The autonomous actor. It receives a `ManagedWallet` via dependency injection. The agent decides *when*, *who*, and *how much* to transfer, but routes the execution through the heavily abstracted Solana connection utilities.
+
+### 2. Security Considerations & Key Management
+AI agents run as persistent daemon processes, meaning their private keys must be accessible to the host machine without human prompting, yet secure at rest.
+- **At Rest**: Agent private keys are **never** stored in plaintext. `KeyStorage.ts` uses Node's built-in `crypto` module to encrypt payloads using **AES-256-CBC**. The encryption password is derived via `scrypt` from an environment variable (`ENCRYPTION_PASSWORD`).
+- **In Memory**: Keys are decrypted only at the exact moment the `AgentOrchestrator` initializes the agents into memory. 
+- **Sandboxed Scope**: Agents only hold keys for their specific Devnet testing addresses. They are explicitly prevented from reading each other's secret keys.
+
+### 3. Agent Autonomy & DeFi Interaction
+The agents demonstrate autonomy by running on independent event loops (timers). The orchestrator handles peer discovery so agents know who is on the network.
+- **SOL Transfers (`npm run dashboard`)**: Agents randomly select peers and autonomously sign and broadcast standard SOL transfers.
+- **DeFi Protocol Interaction (`npm run spl-demo`)**: Shows programmatic protocol interaction. The system dynamically loads N wallets, programmatically launches a new SPL Token Mint, provisions Associated Token Accounts (ATAs), and executes dynamic SPL token distributions via autonomous signatures.
+
 ## Running Tests
 
 ```bash

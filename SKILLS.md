@@ -29,6 +29,11 @@ This document describes the skills and capabilities of the autonomous agents wit
   - Details (target, amount, signature, error message)
 - **Dashboard Reporting**: Agents emit state updates to the `Dashboard` for real-time visualization.
 
+### 5. DeFi Protocol Interaction (SPL Tokens)
+- **Token Mint Creation**: Agents can programmatically deploy new SPL Token mint programs to the blockchain.
+- **ATA Management**: Agents know how to automatically resolve, fetch, and conditionally create Associated Token Accounts for themselves and their peers.
+- **Token Minting & Distribution**: Agents acting as Mint Authorities can autonomously mint raw token supply and distribute it to peers using `createTransferInstruction`.
+
 ## Agent Lifecycle
 
 ```
