@@ -11,6 +11,11 @@ An autonomous multi-agent system where each AI agent manages its own Solana wall
 - 📝 **Structured Logging**: All actions are logged with timestamp, agent ID, action type, and transaction signature.
 - 🌐 **Solana Devnet**: All operations target Devnet for safe development and testing.
 
+## Live Demo
+> **[⬇️ Skip to Deep Dive: Wallet Architecture & Security](#deep-dive-architecture--security)**
+
+![Live Dashboard Preview](./dashboard-demo.png)
+
 ## Project Structure
 
 ```
